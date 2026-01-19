@@ -6,6 +6,13 @@ const XRAY_PATH = "/opt/homebrew/bin/xray";
 const CONFIG_FILE_NAME = "xray.json";
 const CONFIG_PATH = join(process.cwd(), CONFIG_FILE_NAME);
 
+const SOCKS_START_PORT = 50000;
+const SERVER_PORT = 3123;
+const DEFAULT_USER_LEVEL = 8;
+const DEFAULT_FINGERPRINT = "safari";
+const LOOPBACK_ADDRESS = "127.0.0.1";
+const SUBSCRIPTION_USER_AGENT = "v2rayNG/1.8.5";
+
 export interface VlessConfig {
 	uuid: string;
 	address: string;
@@ -113,8 +120,8 @@ export interface XrayOutbound {
 export function generateXrayConfig(configs: VlessConfig[]): any {
 	const inbounds = configs.map((_cfg, index) => ({
 		tag: `proxy-${index}-in`,
-		port: 40000 + index + 1, // Start from 40001
-		listen: "127.0.0.1",
+		port: SOCKS_START_PORT + index + 1, // Start from 50001
+		listen: LOOPBACK_ADDRESS,
 		protocol: "socks",
 		settings: {
 			auth: "none",
@@ -135,7 +142,7 @@ export function generateXrayConfig(configs: VlessConfig[]): any {
 								id: cfg.uuid,
 								flow: cfg.flow,
 								encryption: cfg.encryption,
-								level: 8,
+								level: DEFAULT_USER_LEVEL,
 							},
 						],
 					},
@@ -153,14 +160,14 @@ export function generateXrayConfig(configs: VlessConfig[]): any {
 				serverName: cfg.sni,
 				publicKey: cfg.pbk,
 				shortId: cfg.sid,
-				fingerprint: cfg.fp || "safari",
+				fingerprint: cfg.fp || DEFAULT_FINGERPRINT,
 			};
 		}
 
 		if (cfg.security === "tls") {
 			outbound.streamSettings.tlsSettings = {
 				allowInsecure: false,
-				fingerprint: cfg.fp || "safari",
+				fingerprint: cfg.fp || DEFAULT_FINGERPRINT,
 				serverName: cfg.sni,
 				show: false,
 			};
@@ -199,7 +206,7 @@ function generateSurgeList(configs: VlessConfig[]): string {
 	let output = "[Proxy]\n";
 
 	configs.forEach((cfg, index) => {
-		const port = 40000 + index + 1;
+		const port = SOCKS_START_PORT + index + 1;
 		// Sanitize name for Surge
 		const name = cfg.name.trim().replace(/[\s,]+/g, "_");
 
@@ -208,7 +215,7 @@ function generateSurgeList(configs: VlessConfig[]): string {
 			// Note: We need to escape quotes for the args
 			output += `${name} = external, exec = "${XRAY_PATH}", local-port = ${port}, args = "run", args = "-c", args = "${CONFIG_PATH}"\n`;
 		} else {
-			output += `${name} = socks5, 127.0.0.1, ${port}\n`;
+			output += `${name} = socks5, ${LOOPBACK_ADDRESS}, ${port}\n`;
 		}
 	});
 
@@ -217,7 +224,7 @@ function generateSurgeList(configs: VlessConfig[]): string {
 
 if (import.meta.main) {
 	const server = Bun.serve({
-		port: 3000,
+		port: SERVER_PORT,
 		async fetch(req) {
 			const url = new URL(req.url);
 			const targetUrl = url.searchParams.get("url");
@@ -230,7 +237,7 @@ if (import.meta.main) {
 				console.log(`Fetching subscription from: ${targetUrl}`);
 				const response = await fetch(targetUrl, {
 					headers: {
-						"User-Agent": "v2rayNG/1.8.5", // Use a common v2ray client UA to ensure we get valid links
+						"User-Agent": SUBSCRIPTION_USER_AGENT, // Use a common v2ray client UA to ensure we get valid links
 					},
 				});
 
