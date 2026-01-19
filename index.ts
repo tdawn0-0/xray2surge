@@ -67,7 +67,6 @@ interface XrayOutbound {
 				id: string;
 				flow: string;
 				encryption: string;
-				fingerprint: string;
 			}>;
 		}>;
 	};
@@ -79,6 +78,7 @@ interface XrayOutbound {
 			serverName: string;
 			publicKey: string;
 			shortId: string;
+			fingerprint: string;
 		};
 	};
 }
@@ -108,7 +108,6 @@ function generateXrayConfig(configs: VlessConfig[]): any {
 								id: cfg.uuid,
 								flow: cfg.flow,
 								encryption: cfg.encryption,
-								fingerprint: cfg.fp,
 							},
 						],
 					},
@@ -126,6 +125,7 @@ function generateXrayConfig(configs: VlessConfig[]): any {
 				serverName: cfg.sni,
 				publicKey: cfg.pbk,
 				shortId: cfg.sid,
+				fingerprint: "safari",
 			};
 		}
 
