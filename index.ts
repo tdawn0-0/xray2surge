@@ -1,18 +1,21 @@
 import { join } from "node:path";
 
-const XRAY_PATH = "/opt/homebrew/bin/xray";
+const XRAY_PATH = process.env.XRAY_PATH || "/opt/homebrew/bin/xray";
 // We will generate the xray config file in the current directory or a specific surge directory if needed.
 // For now let's put it in the current working directory to be safe and portable for this script.
-const CONFIG_FILE_NAME = "xray.json";
-const CONFIG_PATH = join(process.cwd(), CONFIG_FILE_NAME);
+const CONFIG_FILE_NAME = process.env.CONFIG_FILE_NAME || "xray.json";
+const CONFIG_PATH =
+	process.env.CONFIG_PATH || join(process.cwd(), CONFIG_FILE_NAME);
 
-const SOCKS_START_PORT = 50000;
-const SERVER_PORT = 3123;
-const DEFAULT_USER_LEVEL = 8;
-const DEFAULT_FINGERPRINT = "safari";
-const LOOPBACK_ADDRESS = "127.0.0.1";
-const SUBSCRIPTION_USER_AGENT = "v2rayNG/1.8.5";
-const FILTER_KEYWORDS = ""; // 逗号分隔的关键词，用于过滤掉名称中包含这些关键词的 proxy
+const SOCKS_START_PORT = parseInt(process.env.SOCKS_START_PORT || "50000", 10);
+const SERVER_PORT = parseInt(process.env.SERVER_PORT || "3123", 10);
+const DEFAULT_USER_LEVEL = parseInt(process.env.DEFAULT_USER_LEVEL || "8", 10);
+const DEFAULT_FINGERPRINT = process.env.DEFAULT_FINGERPRINT || "safari";
+const LOOPBACK_ADDRESS = process.env.LOOPBACK_ADDRESS || "127.0.0.1";
+const SUBSCRIPTION_USER_AGENT =
+	process.env.SUBSCRIPTION_USER_AGENT || "v2rayNG/1.8.5";
+// 逗号分隔的关键词，用于过滤掉名称中包含这些关键词的 proxy
+const FILTER_KEYWORDS = process.env.FILTER_KEYWORDS || "";
 
 export interface VlessConfig {
 	uuid: string;
