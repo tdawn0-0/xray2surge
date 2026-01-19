@@ -6,8 +6,9 @@ This tool solves the problem of Surge not natively supporting VLESS/REALITY prot
 
 ## Prerequisites
 
-- **[Bun](https://bun.sh/)**: The Javascript runtime used to run this tool.
+- **[Rust](https://www.rust-lang.org/)**: Required if you want to build from source.
 - **[Xray-core](https://github.com/XTLS/Xray-core)**: The core executable for handling VLESS connections.
+
 ## Configuration
 
 You can configure the application using environment variables. Copy the `.env.example` file to `.env` and modify the values as needed:
@@ -31,15 +32,37 @@ Available variables:
 
 ## Usage
 
-### 1. Start the Server
+### 1. Build and Start the Server
 
-Run the conversion server:
+Build the project in release mode for optimal performance:
 
 ```bash
-bun run index.ts
+cargo build --release
+```
+
+Run the binary:
+
+```bash
+./target/release/xray2surge
+```
+
+Alternatively, you can run it directly with Cargo:
+
+```bash
+cargo run --release
 ```
 
 The server will start on `http://localhost:3123` (or your configured `SERVER_PORT`).
+
+### Option 2: Run with PM2 (Recommended for Production)
+
+If you have PM2 installed, you can use the provided ecosystem file to run the application in the background:
+
+```bash
+pm2 start ecosystem.config.cjs
+```
+
+This will run the optimized release binary.
 
 ### 2. Convert Subscription
 
@@ -68,8 +91,8 @@ Proxy_Name_2 = socks5, 127.0.0.1, 50001
 
 ### How it Works
 
-1. The script fetches and parses your VLESS subscription.
-2. It generates a valid `xray.json` configuration configures Xray to listen on local SOCKS5 ports (starting from 50000), forwarding traffic to the remote VLESS servers.
+1. The app fetches and parses your VLESS subscription.
+2. It generates a valid `xray.json` configuration that configures Xray to listen on local SOCKS5 ports (starting from 50000), forwarding traffic to the remote VLESS servers.
 3. It generates Surge proxy definitions:
     - The **first proxy** in the list is defined as an `external` proxy. This tells Surge to launch the Xray process using the generated `xray.json`.
     - Subsequent proxies are defined as `socks5` proxies pointing to the local ports that Xray is listening on.
