@@ -1,7 +1,7 @@
 module.exports = {
   apps: [{
     name: "xray2surge",
-    script: "index.ts",
+    script: "bun run index.ts",
     interpreter: "bun",
   }]
 };
