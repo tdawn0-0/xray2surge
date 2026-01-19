@@ -36,14 +36,23 @@ function parseVlessLink(link: string): VlessConfig | null {
 		const port = parseInt(portStr, 10);
 		const params = url.searchParams;
 
+		const type = params.get("type") || "tcp";
+		const security = params.get("security") || "";
+		let flow = params.get("flow") || "";
+
+		// Auto-fill flow for Reality/TLS + TCP if missing to avoid Xray warnings
+		if (security === "reality") {
+			flow = "xtls-rprx-vision";
+		}
+
 		return {
 			uuid,
 			address,
 			port,
-			type: params.get("type") || "tcp",
+			type,
 			encryption: params.get("encryption") || "none",
-			security: params.get("security") || "",
-			flow: params.get("flow") || "",
+			security,
+			flow,
 			sni: params.get("sni") || "",
 			pbk: params.get("pbk") || "",
 			sid: params.get("sid") || "",
