@@ -12,6 +12,7 @@ const DEFAULT_USER_LEVEL = 8;
 const DEFAULT_FINGERPRINT = "safari";
 const LOOPBACK_ADDRESS = "127.0.0.1";
 const SUBSCRIPTION_USER_AGENT = "v2rayNG/1.8.5";
+const FILTER_KEYWORDS = ""; // 逗号分隔的关键词，用于过滤掉名称中包含这些关键词的 proxy
 
 export interface VlessConfig {
 	uuid: string;
@@ -266,10 +267,18 @@ if (import.meta.main) {
 					.map((l) => l.trim())
 					.filter((l) => l.length > 0);
 				const vlessConfigs: VlessConfig[] = [];
+				const filterWords = FILTER_KEYWORDS.split(",")
+					.map((w) => w.trim())
+					.filter((w) => w.length > 0);
 
 				for (const link of links) {
 					const config = parseVlessLink(link);
 					if (config) {
+						const isFiltered = filterWords.some((w) => config.name.includes(w));
+						if (isFiltered) {
+							console.log(`Filtered out proxy: ${config.name}`);
+							continue;
+						}
 						vlessConfigs.push(config);
 					}
 				}
