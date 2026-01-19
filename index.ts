@@ -6,7 +6,7 @@ const XRAY_PATH = "/opt/homebrew/bin/xray";
 const CONFIG_FILE_NAME = "xray.json";
 const CONFIG_PATH = join(process.cwd(), CONFIG_FILE_NAME);
 
-interface VlessConfig {
+export interface VlessConfig {
 	uuid: string;
 	address: string;
 	port: number;
@@ -19,9 +19,11 @@ interface VlessConfig {
 	sid: string;
 	fp: string;
 	name: string;
+	path: string;
+	host: string;
 }
 
-function parseVlessLink(link: string): VlessConfig | null {
+export function parseVlessLink(link: string): VlessConfig | null {
 	if (!link.startsWith("vless://")) return null;
 
 	try {
@@ -30,6 +32,7 @@ function parseVlessLink(link: string): VlessConfig | null {
 		const [address, portStr] = url.host.split(":");
 
 		if (!address || !portStr) {
+			console.log("Invalid address or port", address, portStr);
 			return null;
 		}
 
@@ -41,7 +44,7 @@ function parseVlessLink(link: string): VlessConfig | null {
 		let flow = params.get("flow") || "";
 
 		// Auto-fill flow for Reality/TLS + TCP if missing to avoid Xray warnings
-		if (security === "reality") {
+		if (security === "reality" && !flow) {
 			flow = "xtls-rprx-vision";
 		}
 
@@ -58,6 +61,8 @@ function parseVlessLink(link: string): VlessConfig | null {
 			sid: params.get("sid") || "",
 			fp: params.get("fp") || "",
 			name: decodeURIComponent(url.hash.substring(1)) || "proxy",
+			path: params.get("path") || "",
+			host: params.get("host") || "",
 		};
 	} catch (e) {
 		console.error("Failed to parse link:", link, e);
@@ -65,7 +70,7 @@ function parseVlessLink(link: string): VlessConfig | null {
 	}
 }
 
-interface XrayOutbound {
+export interface XrayOutbound {
 	tag: string;
 	protocol: string;
 	settings: {
@@ -76,6 +81,7 @@ interface XrayOutbound {
 				id: string;
 				flow: string;
 				encryption: string;
+				level: number;
 			}>;
 		}>;
 	};
@@ -89,10 +95,22 @@ interface XrayOutbound {
 			shortId: string;
 			fingerprint: string;
 		};
+		tlsSettings?: {
+			allowInsecure: boolean;
+			fingerprint: string;
+			serverName: string;
+			show: boolean;
+		};
+		wsSettings?: {
+			headers: {
+				Host: string;
+			};
+			path: string;
+		};
 	};
 }
 
-function generateXrayConfig(configs: VlessConfig[]): any {
+export function generateXrayConfig(configs: VlessConfig[]): any {
 	const inbounds = configs.map((_cfg, index) => ({
 		tag: `proxy-${index}-in`,
 		port: 40000 + index + 1, // Start from 40001
@@ -117,6 +135,7 @@ function generateXrayConfig(configs: VlessConfig[]): any {
 								id: cfg.uuid,
 								flow: cfg.flow,
 								encryption: cfg.encryption,
+								level: 8,
 							},
 						],
 					},
@@ -134,7 +153,25 @@ function generateXrayConfig(configs: VlessConfig[]): any {
 				serverName: cfg.sni,
 				publicKey: cfg.pbk,
 				shortId: cfg.sid,
-				fingerprint: "safari",
+				fingerprint: cfg.fp || "safari",
+			};
+		}
+
+		if (cfg.security === "tls") {
+			outbound.streamSettings.tlsSettings = {
+				allowInsecure: false,
+				fingerprint: cfg.fp || "safari",
+				serverName: cfg.sni,
+				show: false,
+			};
+		}
+
+		if (cfg.type === "ws") {
+			outbound.streamSettings.wsSettings = {
+				headers: {
+					Host: cfg.host,
+				},
+				path: cfg.path,
 			};
 		}
 
@@ -178,80 +215,82 @@ function generateSurgeList(configs: VlessConfig[]): string {
 	return output;
 }
 
-const server = Bun.serve({
-	port: 3000,
-	async fetch(req) {
-		const url = new URL(req.url);
-		const targetUrl = url.searchParams.get("url");
+if (import.meta.main) {
+	const server = Bun.serve({
+		port: 3000,
+		async fetch(req) {
+			const url = new URL(req.url);
+			const targetUrl = url.searchParams.get("url");
 
-		if (!targetUrl) {
-			return new Response("Missing 'url' query parameter", { status: 400 });
-		}
-
-		try {
-			console.log(`Fetching subscription from: ${targetUrl}`);
-			const response = await fetch(targetUrl, {
-				headers: {
-					"User-Agent": "v2rayNG/1.8.5", // Use a common v2ray client UA to ensure we get valid links
-				},
-			});
-
-			if (!response.ok) {
-				return new Response(
-					`Failed to fetch subscription: ${response.statusText}`,
-					{ status: 500 },
-				);
+			if (!targetUrl) {
+				return new Response("Missing 'url' query parameter", { status: 400 });
 			}
 
-			const encodedBody = await response.text();
-			// Try to decode Base64
-			let decodedBody: string;
 			try {
-				decodedBody = atob(encodedBody.trim());
-			} catch (_e) {
-				// Sometimes it might not be base64 encoded or have whitespace?
-				// Let's assume standard subscription return is base64
-				return new Response("Failed to decode base64 subscription body", {
-					status: 500,
+				console.log(`Fetching subscription from: ${targetUrl}`);
+				const response = await fetch(targetUrl, {
+					headers: {
+						"User-Agent": "v2rayNG/1.8.5", // Use a common v2ray client UA to ensure we get valid links
+					},
 				});
-			}
 
-			const links = decodedBody
-				.split("\n")
-				.map((l) => l.trim())
-				.filter((l) => l.length > 0);
-			const vlessConfigs: VlessConfig[] = [];
-
-			for (const link of links) {
-				const config = parseVlessLink(link);
-				if (config) {
-					vlessConfigs.push(config);
+				if (!response.ok) {
+					return new Response(
+						`Failed to fetch subscription: ${response.statusText}`,
+						{ status: 500 },
+					);
 				}
+
+				const encodedBody = await response.text();
+				// Try to decode Base64
+				let decodedBody: string;
+				try {
+					decodedBody = atob(encodedBody.trim());
+				} catch (_e) {
+					// Sometimes it might not be base64 encoded or have whitespace?
+					// Let's assume standard subscription return is base64
+					return new Response("Failed to decode base64 subscription body", {
+						status: 500,
+					});
+				}
+
+				const links = decodedBody
+					.split("\n")
+					.map((l) => l.trim())
+					.filter((l) => l.length > 0);
+				const vlessConfigs: VlessConfig[] = [];
+
+				for (const link of links) {
+					const config = parseVlessLink(link);
+					if (config) {
+						vlessConfigs.push(config);
+					}
+				}
+
+				if (vlessConfigs.length === 0) {
+					return new Response("No valid VLESS links found", { status: 404 });
+				}
+
+				const xrayConfig = generateXrayConfig(vlessConfigs);
+
+				// Write Xray config to file
+				await Bun.write(CONFIG_PATH, JSON.stringify(xrayConfig, null, 2));
+				console.log(`Written Xray config to ${CONFIG_PATH}`);
+
+				const surgeList = generateSurgeList(vlessConfigs);
+
+				return new Response(surgeList, {
+					headers: {
+						"Content-Type": "text/plain; charset=utf-8",
+					},
+				});
+			} catch (error) {
+				console.error(error);
+				return new Response("Internal Server Error", { status: 500 });
 			}
+		},
+	});
 
-			if (vlessConfigs.length === 0) {
-				return new Response("No valid VLESS links found", { status: 404 });
-			}
-
-			const xrayConfig = generateXrayConfig(vlessConfigs);
-
-			// Write Xray config to file
-			await Bun.write(CONFIG_PATH, JSON.stringify(xrayConfig, null, 2));
-			console.log(`Written Xray config to ${CONFIG_PATH}`);
-
-			const surgeList = generateSurgeList(vlessConfigs);
-
-			return new Response(surgeList, {
-				headers: {
-					"Content-Type": "text/plain; charset=utf-8",
-				},
-			});
-		} catch (error) {
-			console.error(error);
-			return new Response("Internal Server Error", { status: 500 });
-		}
-	},
-});
-
-console.log(`Listening on http://localhost:${server.port}`);
-console.log(`Xray Config will be saved to: ${CONFIG_PATH}`);
+	console.log(`Listening on http://localhost:${server.port}`);
+	console.log(`Xray Config will be saved to: ${CONFIG_PATH}`);
+}
