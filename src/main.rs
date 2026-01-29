@@ -1,8 +1,9 @@
 mod config;
+mod handlers;
+mod hysteria2;
+mod surge;
 mod vless;
 mod xray;
-mod surge;
-mod handlers; // We will create this next
 
 use crate::config::Config;
 use axum::{routing::get, Router};
@@ -22,7 +23,7 @@ async fn main() {
     // Initialize config
     let config = Config::from_env();
     let port = config.server_port;
-    
+
     let state = Arc::new(AppState { config });
 
     // Build router
@@ -32,7 +33,10 @@ async fn main() {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     println!("Listening on http://{}", addr);
-    println!("Xray Config will be saved to: {}", Config::from_env().config_path); // creating new config here just for logging path
+    println!(
+        "Xray Config will be saved to: {}",
+        Config::from_env().config_path
+    ); // creating new config here just for logging path
 
     let listener = TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

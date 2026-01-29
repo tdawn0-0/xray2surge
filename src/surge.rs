@@ -1,21 +1,29 @@
 use crate::config::Config;
+use crate::hysteria2::Hysteria2Config;
 use crate::vless::VlessConfig;
 
-pub fn generate_surge_list(configs: &[VlessConfig], app_config: &Config) -> String {
-    if configs.is_empty() {
+pub fn generate_surge_list(
+    vless_configs: &[VlessConfig],
+    hysteria2_configs: &[Hysteria2Config],
+    app_config: &Config,
+) -> String {
+    if vless_configs.is_empty() && hysteria2_configs.is_empty() {
         return String::new();
     }
 
     let mut output = String::from("[Proxy]\n");
 
-    for (index, cfg) in configs.iter().enumerate() {
+    // Output VLESS proxies (via Xray socks5)
+    for (index, cfg) in vless_configs.iter().enumerate() {
         let port = app_config.socks_start_port + (index as u16) + 1;
         // Sanitize name for Surge
-        let name = cfg.name.trim().replace(|c: char| c.is_whitespace() || c == ',', "_");
+        let name = cfg
+            .name
+            .trim()
+            .replace(|c: char| c.is_whitespace() || c == ',', "_");
 
         if index == 0 {
             // First one is the external one that starts Xray
-            // Note: We need to escape quotes for the args if needed, but here simple replacement is likely enough.
             output.push_str(&format!(
                 "{} = external, exec = \"{}\", local-port = {}, args = \"run\", args = \"-c\", args = \"{}\"\n",
                 name,
@@ -26,11 +34,33 @@ pub fn generate_surge_list(configs: &[VlessConfig], app_config: &Config) -> Stri
         } else {
             output.push_str(&format!(
                 "{} = socks5, {}, {}\n",
-                name,
-                app_config.loopback_address,
-                port
+                name, app_config.loopback_address, port
             ));
         }
+    }
+
+    // Output Hysteria2 proxies (native Surge support)
+    for cfg in hysteria2_configs {
+        let name = cfg
+            .name
+            .trim()
+            .replace(|c: char| c.is_whitespace() || c == ',', "_");
+
+        let mut line = format!(
+            "{} = hysteria2, {}, {}, password={}",
+            name, cfg.address, cfg.port, cfg.password
+        );
+
+        if cfg.insecure {
+            line.push_str(", skip-cert-verify=true");
+        }
+
+        if !cfg.sni.is_empty() {
+            line.push_str(&format!(", sni={}", cfg.sni));
+        }
+
+        line.push('\n');
+        output.push_str(&line);
     }
 
     output

@@ -1,3 +1,4 @@
+use crate::hysteria2::{parse_hysteria2_link, Hysteria2Config};
 use crate::surge::generate_surge_list;
 use crate::vless::parse_vless_link;
 use crate::xray::generate_xray_config;
@@ -37,6 +38,7 @@ pub async fn fetch_subscription(
 
     let client = reqwest::Client::new();
     let mut all_vless_configs = Vec::new();
+    let mut all_hysteria2_configs: Vec<Hysteria2Config> = Vec::new();
 
     // Fetch and parse all URLs
     for target_url in &urls {
@@ -88,6 +90,7 @@ pub async fn fetch_subscription(
             .collect();
 
         for link in links {
+            // Try parsing as VLESS first
             if let Ok(config) = parse_vless_link(link) {
                 let is_filtered = state
                     .config
@@ -100,13 +103,26 @@ pub async fn fetch_subscription(
                 }
                 all_vless_configs.push(config);
             }
+            // Try parsing as Hysteria2
+            else if let Ok(config) = parse_hysteria2_link(link) {
+                let is_filtered = state
+                    .config
+                    .filter_keywords
+                    .iter()
+                    .any(|w| config.name.contains(w));
+                if is_filtered {
+                    println!("Filtered out proxy: {}", config.name);
+                    continue;
+                }
+                all_hysteria2_configs.push(config);
+            }
         }
     }
 
-    if all_vless_configs.is_empty() {
+    if all_vless_configs.is_empty() && all_hysteria2_configs.is_empty() {
         return (
             StatusCode::NOT_FOUND,
-            "No valid VLESS links found from any URL",
+            "No valid proxy links found from any URL",
         )
             .into_response();
     }
@@ -138,7 +154,7 @@ pub async fn fetch_subscription(
 
     println!("Written Xray config to {}", state.config.config_path);
 
-    let surge_list = generate_surge_list(&vless_configs, &state.config);
+    let surge_list = generate_surge_list(&vless_configs, &all_hysteria2_configs, &state.config);
 
     (
         StatusCode::OK,
