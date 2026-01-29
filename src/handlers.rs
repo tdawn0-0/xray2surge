@@ -1,4 +1,3 @@
-use crate::config::Config;
 use crate::surge::generate_surge_list;
 use crate::vless::parse_vless_link;
 use crate::xray::generate_xray_config;
@@ -18,83 +17,102 @@ pub async fn fetch_subscription(
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
-    let target_url = match params.get("url") {
+    // Support multiple URLs: either comma-separated in a single 'url' param,
+    // or multiple 'url' params (axum merges them with comma)
+    let urls_param = match params.get("url") {
         Some(url) => url,
         None => return (StatusCode::BAD_REQUEST, "Missing 'url' query parameter").into_response(),
     };
 
-    println!("Fetching subscription from: {}", target_url);
+    // Split by comma to support multiple URLs
+    let urls: Vec<&str> = urls_param
+        .split(',')
+        .map(|u| u.trim())
+        .filter(|u| !u.is_empty())
+        .collect();
+
+    if urls.is_empty() {
+        return (StatusCode::BAD_REQUEST, "No valid URLs provided").into_response();
+    }
 
     let client = reqwest::Client::new();
-    let resp = match client
-        .get(target_url)
-        .header(USER_AGENT, &state.config.subscription_user_agent)
-        .send()
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to fetch subscription: {}", e),
-            )
-                .into_response()
-        }
-    };
+    let mut all_vless_configs = Vec::new();
 
-    if !resp.status().is_success() {
+    // Fetch and parse all URLs
+    for target_url in &urls {
+        println!("Fetching subscription from: {}", target_url);
+
+        let resp = match client
+            .get(*target_url)
+            .header(USER_AGENT, &state.config.subscription_user_agent)
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("Failed to fetch subscription from {}: {}", target_url, e);
+                continue; // Skip this URL and try the next one
+            }
+        };
+
+        if !resp.status().is_success() {
+            eprintln!(
+                "Failed to fetch subscription from {}: {}",
+                target_url,
+                resp.status()
+            );
+            continue;
+        }
+
+        let encoded_body = match resp.text().await {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("Failed to read response body from {}: {}", target_url, e);
+                continue;
+            }
+        };
+
+        // Decode Base64
+        let decoded_body = match decode_base64_content(&encoded_body) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("Failed to decode base64 from {}: {}", target_url, e);
+                continue;
+            }
+        };
+
+        let links: Vec<&str> = decoded_body
+            .split('\n')
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect();
+
+        for link in links {
+            if let Ok(config) = parse_vless_link(link) {
+                let is_filtered = state
+                    .config
+                    .filter_keywords
+                    .iter()
+                    .any(|w| config.name.contains(w));
+                if is_filtered {
+                    println!("Filtered out proxy: {}", config.name);
+                    continue;
+                }
+                all_vless_configs.push(config);
+            }
+        }
+    }
+
+    if all_vless_configs.is_empty() {
         return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to fetch subscription: {}", resp.status()),
+            StatusCode::NOT_FOUND,
+            "No valid VLESS links found from any URL",
         )
             .into_response();
     }
 
-    let encoded_body = match resp.text().await {
-        Ok(t) => t,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to read response body: {}", e),
-            )
-                .into_response()
-        }
-    };
-
-    // Decode Base64
-    let decoded_body = match decode_base64_content(&encoded_body) {
-        Ok(d) => d,
-        Err(e) => {
-             return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to decode base64 subscription body: {}", e),
-            )
-            .into_response()
-        }
-    };
-
-    let links: Vec<&str> = decoded_body
-        .split('\n')
-        .map(|l| l.trim())
-        .filter(|l| !l.is_empty())
-        .collect();
-
-    let mut vless_configs = Vec::new();
-
-    for link in links {
-        if let Ok(config) = parse_vless_link(link) {
-            let is_filtered = state.config.filter_keywords.iter().any(|w| config.name.contains(w));
-            if is_filtered {
-                println!("Filtered out proxy: {}", config.name);
-                continue;
-            }
-            vless_configs.push(config);
-        }
-    }
-
-    if vless_configs.is_empty() {
-        return (StatusCode::NOT_FOUND, "No valid VLESS links found").into_response();
-    }
+    // Handle duplicate names by adding hostname suffix
+    let vless_configs = deduplicate_proxy_names(all_vless_configs);
 
     let xray_config = generate_xray_config(&vless_configs, &state.config);
 
@@ -106,16 +124,16 @@ pub async fn fetch_subscription(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to serialize Xray config: {}", e),
             )
-            .into_response()
+                .into_response()
         }
     };
 
     if let Err(e) = fs::write(&state.config.config_path, config_json).await {
-         return (
+        return (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to write Xray config to file: {}", e),
         )
-        .into_response()
+            .into_response();
     }
 
     println!("Written Xray config to {}", state.config.config_path);
@@ -124,10 +142,13 @@ pub async fn fetch_subscription(
 
     (
         StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; charset=utf-8",
+        )],
         surge_list,
     )
-    .into_response()
+        .into_response()
 }
 
 fn decode_base64_content(content: &str) -> anyhow::Result<String> {
@@ -135,4 +156,48 @@ fn decode_base64_content(content: &str) -> anyhow::Result<String> {
     // Sometimes padding might be missing or whitespace issues
     let decoded_bytes = general_purpose::STANDARD.decode(trimmed)?;
     String::from_utf8(decoded_bytes).map_err(|e| anyhow::anyhow!(e))
+}
+
+use crate::vless::VlessConfig;
+
+/// Deduplicate proxy names by adding hostname suffix for configs with the same name.
+/// If multiple proxies have the same name but different hostnames, append the hostname to distinguish them.
+fn deduplicate_proxy_names(mut configs: Vec<VlessConfig>) -> Vec<VlessConfig> {
+    // Count occurrences of each name
+    let mut name_counts: HashMap<String, usize> = HashMap::new();
+    for cfg in &configs {
+        *name_counts.entry(cfg.name.clone()).or_insert(0) += 1;
+    }
+
+    // Find names that appear more than once
+    let duplicate_names: std::collections::HashSet<String> = name_counts
+        .into_iter()
+        .filter(|(_, count)| *count > 1)
+        .map(|(name, _)| name)
+        .collect();
+
+    // Track seen name+address combinations to ensure uniqueness
+    let mut seen: HashMap<String, usize> = HashMap::new();
+
+    // Rename duplicates by appending hostname
+    for cfg in &mut configs {
+        if duplicate_names.contains(&cfg.name) {
+            // Create a new name with hostname suffix
+            let new_name = format!("{}-{}", cfg.name, cfg.address);
+
+            // Handle cases where even name+hostname might collide (e.g., same proxy from same source)
+            let count = seen.entry(new_name.clone()).or_insert(0);
+            if *count > 0 {
+                cfg.name = format!("{}-{}", new_name, count);
+            } else {
+                cfg.name = new_name;
+            }
+            *seen.get_mut(&cfg.name).unwrap_or(&mut 0) += 1;
+
+            // Re-track with the actual final name
+            *seen.entry(cfg.name.clone()).or_insert(0) = 1;
+        }
+    }
+
+    configs
 }
