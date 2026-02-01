@@ -24,7 +24,7 @@ pub fn generate_surge_list(
         app_config.config_path
     ));
 
-    // Output VLESS proxies (via Xray socks5)
+    // Output VLESS proxies (via Xray socks5) - fake proxy handles Xray launch
     for (index, cfg) in vless_configs.iter().enumerate() {
         let port = app_config.socks_start_port + (index as u16) + 1;
         // Sanitize name for Surge
@@ -33,21 +33,10 @@ pub fn generate_surge_list(
             .trim()
             .replace(|c: char| c.is_whitespace() || c == ',', "_");
 
-        if index == 0 {
-            // First one is the external one that starts Xray
-            output.push_str(&format!(
-                "{} = external, exec = \"{}\", local-port = {}, args = \"run\", args = \"-c\", args = \"{}\"\n",
-                name,
-                app_config.xray_path,
-                port,
-                app_config.config_path
-            ));
-        } else {
-            output.push_str(&format!(
-                "{} = socks5, {}, {}\n",
-                name, app_config.loopback_address, port
-            ));
-        }
+        output.push_str(&format!(
+            "{} = socks5, {}, {}\n",
+            name, app_config.loopback_address, port
+        ));
     }
 
     // Output Hysteria2 proxies (native Surge support)
