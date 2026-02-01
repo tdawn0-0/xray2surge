@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::hysteria2::Hysteria2Config;
 use crate::vless::VlessConfig;
+use uuid::Uuid;
 
 pub fn generate_surge_list(
     vless_configs: &[VlessConfig],
@@ -12,6 +13,16 @@ pub fn generate_surge_list(
     }
 
     let mut output = String::from("[Proxy]\n");
+
+    // Add a fake proxy with a random name to force Surge to restart Xray on subscription update
+    let random_name = format!("xray_{}", Uuid::new_v4().simple());
+    output.push_str(&format!(
+        "{} = external, exec = \"{}\", local-port = {}, args = \"run\", args = \"-c\", args = \"{}\"\n",
+        random_name,
+        app_config.xray_path,
+        app_config.socks_start_port,
+        app_config.config_path
+    ));
 
     // Output VLESS proxies (via Xray socks5)
     for (index, cfg) in vless_configs.iter().enumerate() {
