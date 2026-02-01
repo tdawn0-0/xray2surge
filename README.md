@@ -1,8 +1,16 @@
 # xray2surge
 
-A lightweight tool to convert VLESS subscription links into a format compatible with Surge Mac, utilizing [Xray-core](https://github.com/XTLS/Xray-core) as an external proxy.
+A lightweight tool to convert proxy subscription links into a format compatible with Surge Mac, utilizing [Xray-core](https://github.com/XTLS/Xray-core) as an external proxy.
 
-This tool solves the problem of Surge not natively supporting VLESS/REALITY protocols by bridging it with Xray.
+This tool solves the problem of Surge not natively supporting VLESS/REALITY and Hysteria2 protocols by bridging them with Xray.
+
+## Features
+
+- **VLESS/REALITY Support**: Full support for VLESS protocol with REALITY transport
+- **Hysteria2 Support**: Native Hysteria2 proxy support with port hopping
+- **Multiple Subscriptions**: Merge proxies from multiple subscription URLs
+- **Auto Deduplication**: Automatically handles duplicate proxy names by appending hostnames
+- **Keyword Filtering**: Filter out unwanted proxies by name keywords
 
 ## Prerequisites
 
@@ -19,16 +27,18 @@ cp .env.example .env
 
 Available variables:
 
-- `XRAY_PATH`: Path to the Xray executable (default: `/opt/homebrew/bin/xray`)
-- `CONFIG_FILE_NAME`: Name of the generated Xray config file (default: `xray.json`)
-- `CONFIG_PATH`: Full path to the generated Xray config file (optional, overrides `CONFIG_FILE_NAME` + `cwd`)
-- `SOCKS_START_PORT`: Starting port for SOCKS5 proxies (default: `50000`)
-- `SERVER_PORT`: Port for this conversion server (default: `3123`)
-- `DEFAULT_USER_LEVEL`: Xray user level (default: `8`)
-- `DEFAULT_FINGERPRINT`: TLS/Reality fingerprint (default: `safari`)
-- `LOOPBACK_ADDRESS`: Loopback address to bind (default: `127.0.0.1`)
-- `SUBSCRIPTION_USER_AGENT`: User-Agent for fetching subscriptions (default: `v2rayNG/1.8.5`)
-- `FILTER_KEYWORDS`: Comma-separated keywords to filter out proxies by name
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `XRAY_PATH` | `/opt/homebrew/bin/xray` | Path to the Xray executable |
+| `CONFIG_FILE_NAME` | `xray.json` | Name of the generated Xray config file |
+| `CONFIG_PATH` | `<cwd>/xray.json` | Full path to the generated Xray config file |
+| `SOCKS_START_PORT` | `50000` | Starting port for SOCKS5 proxies |
+| `SERVER_PORT` | `3123` | Port for this conversion server |
+| `DEFAULT_USER_LEVEL` | `8` | Xray user level |
+| `DEFAULT_FINGERPRINT` | `safari` | TLS/Reality fingerprint |
+| `LOOPBACK_ADDRESS` | `127.0.0.1` | Loopback address to bind |
+| `SUBSCRIPTION_USER_AGENT` | `v2rayNG/1.8.5` | User-Agent for fetching subscriptions |
+| `FILTER_KEYWORDS` | *(empty)* | Comma-separated keywords to filter out proxies |
 
 ## Usage
 
@@ -38,15 +48,10 @@ Build the project in release mode for optimal performance:
 
 ```bash
 cargo build --release
-```
-
-Run the binary:
-
-```bash
 ./target/release/xray2surge
 ```
 
-Alternatively, you can run it directly with Cargo:
+Or run directly with Cargo:
 
 ```bash
 cargo run --release
@@ -54,25 +59,29 @@ cargo run --release
 
 The server will start on `http://localhost:3123` (or your configured `SERVER_PORT`).
 
-### Option 2: Run with PM2 (Recommended for Production)
+### Run with PM2 (Recommended for Production)
 
-If you have PM2 installed, you can use the provided ecosystem file to run the application in the background:
+If you have PM2 installed, use the provided ecosystem file:
 
 ```bash
 pm2 start ecosystem.config.cjs
 ```
 
-This will run the optimized release binary.
-
 ### 2. Convert Subscription
 
-Open your browser or use curl to fetch the Surge configuration from your VLESS subscription URL:
+**Single subscription:**
 
 ```
-http://localhost:3123/?url=<YOUR_VLESS_SUBSCRIPTION_URL>
+http://localhost:3123/?url=<YOUR_SUBSCRIPTION_URL>
 ```
 
-*Note: The tool expects the subscription URL to return a base64 encoded list of `vless://` links.*
+**Multiple subscriptions** (comma-separated):
+
+```
+http://localhost:3123/?url=<URL1>,<URL2>,<URL3>
+```
+
+> **Note:** The tool expects subscription URLs to return base64-encoded lists of `vless://` or `hysteria2://` (or `hy2://`) links.
 
 ### 3. Configure Surge
 
@@ -81,19 +90,35 @@ The response will be a list of proxy definitions compatible with Surge.
 1. **Copy** the output text.
 2. **Paste** it into the `[Proxy]` section of your Surge configuration file.
 
-The output will look something like this:
+**Example output:**
 
 ```ini
-Proxy_Name_1 = external, exec = "/opt/homebrew/bin/xray", local-port = 50001, args = "run", args = "-c", args = "/path/to/xray2surge/xray.json"
-Proxy_Name_2 = socks5, 127.0.0.1, 50001
-...
+# VLESS proxies (via Xray)
+Proxy_Name_1 = external, exec = "/opt/homebrew/bin/xray", local-port = 50001, args = "run", args = "-c", args = "/path/to/xray.json"
+Proxy_Name_2 = socks5, 127.0.0.1, 50002
+
+# Hysteria2 proxies (native Surge support)
+HY2_Proxy = hysteria2, example.com, 443, password=xxx, sni=example.com
 ```
 
-### How it Works
+## How it Works
 
-1. The app fetches and parses your VLESS subscription.
-2. It generates a valid `xray.json` configuration that configures Xray to listen on local SOCKS5 ports (starting from 50000), forwarding traffic to the remote VLESS servers.
-3. It generates Surge proxy definitions:
-    - The **first proxy** in the list is defined as an `external` proxy. This tells Surge to launch the Xray process using the generated `xray.json`.
-    - Subsequent proxies are defined as `socks5` proxies pointing to the local ports that Xray is listening on.
-4. When Surge starts (or when you activate the proxy), it runs Xray in the background. Surge then routes traffic to the local SOCKS5 ports, which Xray handles and tunnels via VLESS.
+1. The app fetches and parses your subscriptions (VLESS and Hysteria2).
+2. For VLESS proxies:
+   - Generates a valid `xray.json` configuration with SOCKS5 inbound ports (starting from 50000)
+   - Creates Surge `external` and `socks5` proxy definitions
+3. For Hysteria2 proxies:
+   - Directly generates native Surge `hysteria2` proxy definitions (no Xray needed)
+4. When Surge activates the proxies, it runs Xray in the background for VLESS traffic while using native support for Hysteria2.
+
+## Supported Protocols
+
+| Protocol | Transport | Notes |
+|----------|-----------|-------|
+| VLESS | TCP, WebSocket | Requires Xray-core |
+| VLESS + REALITY | TCP | Requires Xray-core |
+| Hysteria2 | QUIC | Native Surge support, with port hopping |
+
+## License
+
+MIT
