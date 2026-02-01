@@ -10,48 +10,38 @@ permissions:
 
 jobs:
   build:
-    strategy:
-      matrix:
-        include:
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            name: xray2surge-macos-intel
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            name: xray2surge-macos-arm64
-    
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-latest
     
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: aarch64-apple-darwin
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target aarch64-apple-darwin
 
       - name: Package
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/xray2surge dist/${{ matrix.name }}
-          chmod +x dist/${{ matrix.name }}
+          cp target/aarch64-apple-darwin/release/xray2surge dist/xray2surge-macos-arm64
+          chmod +x dist/xray2surge-macos-arm64
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.name }}
-          path: dist/${{ matrix.name }}
+          name: xray2surge-macos-arm64
+          path: dist/xray2surge-macos-arm64
 
   release:
     needs: build
     runs-on: ubuntu-latest
     
     steps:
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
