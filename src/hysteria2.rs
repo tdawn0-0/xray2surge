@@ -9,6 +9,8 @@ pub struct Hysteria2Config {
     pub insecure: bool,
     pub sni: String,
     pub name: String,
+    /// Port hopping range, e.g., Some("8000-9000")
+    pub port_hopping: Option<String>,
 }
 
 pub fn parse_hysteria2_link(link: &str) -> Result<Hysteria2Config> {
@@ -34,6 +36,9 @@ pub fn parse_hysteria2_link(link: &str) -> Result<Hysteria2Config> {
 
     let sni = query_map.get("sni").cloned().unwrap_or_default();
 
+    // Check for port hopping via mport parameter (e.g., mport=8000-9000)
+    let port_hopping = query_map.get("mport").cloned().filter(|v| v.contains('-'));
+
     let name = url
         .fragment()
         .map(|f| {
@@ -50,5 +55,6 @@ pub fn parse_hysteria2_link(link: &str) -> Result<Hysteria2Config> {
         insecure,
         sni,
         name,
+        port_hopping,
     })
 }

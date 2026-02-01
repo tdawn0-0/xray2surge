@@ -62,6 +62,14 @@ pub fn generate_surge_list(
             name, cfg.address, cfg.port, cfg.password
         );
 
+        // Add port-hopping if present
+        if let Some(ref port_range) = cfg.port_hopping {
+            line.push_str(&format!(
+                ", port-hopping={}, port-hopping-interval=8",
+                port_range
+            ));
+        }
+
         if cfg.insecure {
             line.push_str(", skip-cert-verify=true");
         }
