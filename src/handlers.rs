@@ -36,6 +36,8 @@ pub async fn fetch_subscription(
         return (StatusCode::BAD_REQUEST, "No valid URLs provided").into_response();
     }
 
+    let include_hysteria = parse_include_hysteria(&params);
+
     let client = reqwest::Client::new();
     let mut all_vless_configs = Vec::new();
     let mut all_hysteria2_configs: Vec<Hysteria2Config> = Vec::new();
@@ -104,17 +106,19 @@ pub async fn fetch_subscription(
                 all_vless_configs.push(config);
             }
             // Try parsing as Hysteria2
-            else if let Ok(config) = parse_hysteria2_link(link) {
-                let is_filtered = state
-                    .config
-                    .filter_keywords
-                    .iter()
-                    .any(|w| config.name.contains(w));
-                if is_filtered {
-                    println!("Filtered out proxy: {}", config.name);
-                    continue;
+            else if include_hysteria {
+                if let Ok(config) = parse_hysteria2_link(link) {
+                    let is_filtered = state
+                        .config
+                        .filter_keywords
+                        .iter()
+                        .any(|w| config.name.contains(w));
+                    if is_filtered {
+                        println!("Filtered out proxy: {}", config.name);
+                        continue;
+                    }
+                    all_hysteria2_configs.push(config);
                 }
-                all_hysteria2_configs.push(config);
             }
         }
     }
@@ -154,7 +158,12 @@ pub async fn fetch_subscription(
 
     println!("Written Xray config to {}", state.config.config_path);
 
-    let surge_list = generate_surge_list(&vless_configs, &all_hysteria2_configs, &state.config);
+    let hysteria2_configs = if include_hysteria {
+        &all_hysteria2_configs[..]
+    } else {
+        &[]
+    };
+    let surge_list = generate_surge_list(&vless_configs, hysteria2_configs, &state.config);
 
     (
         StatusCode::OK,
@@ -165,6 +174,17 @@ pub async fn fetch_subscription(
         surge_list,
     )
         .into_response()
+}
+
+/// Parse the `hysteria` query parameter. Defaults to `true` (include Hysteria2 proxies).
+/// Accepts: true/false, 1/0, yes/no (case-insensitive).
+fn parse_include_hysteria(params: &HashMap<String, String>) -> bool {
+    match params.get("hysteria").map(|s| s.to_lowercase()) {
+        Some(v) if matches!(v.as_str(), "false" | "0" | "no") => false,
+        Some(v) if matches!(v.as_str(), "true" | "1" | "yes") => true,
+        None => true,
+        Some(_) => true,
+    }
 }
 
 fn decode_base64_content(content: &str) -> anyhow::Result<String> {
